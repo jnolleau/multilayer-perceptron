@@ -1,5 +1,6 @@
 from cProfile import label
 from hashlib import new
+from tkinter.messagebox import NO
 import numpy as np
 from matplotlib import pyplot as plt
 from sklearn.metrics import accuracy_score, log_loss
@@ -25,6 +26,7 @@ class Neuron:
 
     # 1. model F
     def __initialisation(self, nb_of_features):
+        np.random.seed(0)
         W = np.random.randn(nb_of_features, 1)
         b = np.random.randn(1)
         return (W, b)
@@ -37,6 +39,11 @@ class Neuron:
     def _predict(self, X, W, b):
         A = self.__model(X, W, b)
         return A >= 0.5
+    
+    def predict(self, X, W, b):
+        A = self.__model(X, W, b)
+        y_pred = np.where(A >= 0.5, self.classes[1], self.classes[0])
+        return y_pred
 
     # 2. Fonction cout (== log_loss)
     def __log_loss(self, y, H0):
@@ -63,15 +70,21 @@ class Neuron:
             A = self.__model(X_train, W, b)
             dW, db = self.__grad(X_train, y_train, A)
             W, b = self.__update(W, b, dW, db)
-            if (i % 10 == 0):
-                self.loss.append(self.__log_loss(y_train, A))
-                y_pred = self._predict(X_train, W, b)
-                self.acc.append(accuracy_score(y_train, y_pred))
-                if (X_test is not None and X_train is not None):
-                    A_test = self.__model(X_test, W, b)
-                    self.test_loss.append(self.__log_loss(y_test, A_test))
-                    y_pred = self._predict(X_test, W, b)
-                    self.test_acc.append(accuracy_score(y_test, y_pred))
+            # if (i % 10 == 0):
+            curr_loss = self.__log_loss(y_train, A)
+            self.loss.append(curr_loss)
+            y_pred = self._predict(X_train, W, b)
+            self.acc.append(accuracy_score(y_train, y_pred))
+            if (X_test is not None and X_train is not None):
+                A_test = self.__model(X_test, W, b)
+                val_loss = self.__log_loss(y_test, A_test)
+                self.test_loss.append(val_loss)
+                y_pred = self._predict(X_test, W, b)
+                acc = accuracy_score(y_test, y_pred)
+                self.test_acc.append(acc)
+                print(f'epoch {i}/{self.nb_iter} - loss: {curr_loss:.4f} - val_loss: {val_loss:.4f}')
+            else:
+                print(f'epoch {i}/{self.nb_iter} - loss: {curr_loss:.4f}')
         return W, b
 
     def __SGD(self, X, y, W, b):
@@ -114,9 +127,21 @@ class Neuron:
     # 4. Regression
     def fit(self, X_train, y_train, X_test=None, y_test=None):
 
-        # X = np.asarray(X_train)
-        # y = np.asarray(y_train)
-        # y = y.reshape(y.shape[0], 1)
+        X_train = np.asarray(X_train)
+        y_train = np.asarray(y_train)
+        y_train = y_train.reshape(y_train.shape[0], 1)
+        
+        self.classes = np.unique(y_train)
+
+        if (X_test is not None and y_test is not None):
+            X_test = np.asarray(X_test)
+            y_test = np.asarray(y_test)
+            y_test = y_test.reshape(y_test.shape[0], 1)
+            y_test = np.where(y_test == self.classes[1], 1, 0) # Not robust --> depends on self.classes order !!!
+
+
+        # convert str target to [0,1]
+        y_train = np.where(y_train == self.classes[1], 1, 0) # Not robust --> depends on self.classes order !!!
 
         W, b = self.gradient_descent[self.solver](self, X_train, y_train, X_test, y_test)
 
@@ -173,7 +198,7 @@ def test_with_plant_dataset():
     y = y.reshape(y.shape[0], 1)
 
     neuron = Neuron(nb_iter=100)
-    W, b, Loss, acc = neuron.fit(X, y)
+    W, b = neuron.fit(X, y)
     y_pred = neuron._predict(X, W, b)
     
     print(accuracy_score(y, y_pred))
@@ -227,6 +252,6 @@ def test_cats_and_dogs():
 
 
 if __name__ == '__main__':
-    # test_with_plant_dataset()
-    test_cats_and_dogs()
+    test_with_plant_dataset()
+    # test_cats_and_dogs()
 
