@@ -7,7 +7,11 @@ from sklearn.metrics import accuracy_score, log_loss
 from math_utils import sigmoid
 from matrix_utils import shuffle, standardize_df
 from tqdm import tqdm
+# from scipy.special import softmax
+from sklearn.utils.extmath import softmax
 
+# def softmax(x):
+#     return np.exp(x) / np.sum(np.exp(x))
 
 class Neuron:
     def __init__(self, layers=(32,), nb_iter=150, learning_rate=0.1, lr_ratio=1, solver='bgd', shuffle=None):
@@ -26,13 +30,14 @@ class Neuron:
         self.test_acc = []
 
     # 1. model F
-    def __initialisation(self, n_neurons):
-
-        n_layers = len(n_neurons)
+    def __initialisation(self, layers):
+        
+        n_layers = len(layers)
+        np.random.seed(0)
         parameters = {
             f'C{i}': {
-                'W': np.random.randn(n_neurons[i], n_neurons[i-1]),
-                'b': np.random.randn(n_neurons[i], 1)
+                'W': np.random.randn(layers[i], layers[i-1]),
+                'b': np.random.randn(layers[i], 1)
             } for i in range(1, n_layers)
         }
         return parameters
@@ -43,9 +48,12 @@ class Neuron:
         activations = {}
         for i in range(1, len(parameters) + 1):
             Z = np.dot(parameters[f'C{i}']['W'], A) + parameters[f'C{i}']['b']
+            # if (i != len(parameters)):
             A = sigmoid(Z)
             activations[f'A{i}'] = A
-
+        # t = np.exp(Z)
+        # A = softmax(t)
+        # activations[f'A{len(parameters)}'] = A
         return activations
 
     def _predict(self, X, parameters):
@@ -53,12 +61,25 @@ class Neuron:
         out = len(parameters)
         A = activations[f'A{out}']
         return A >= 0.5
+    
+    def predict(self, X, parameters):
+        activations = self.__forward_propagation(X, parameters)
+        out = len(parameters)
+        A = activations[f'A{out}']
+        y_pred = np.where(A >= 0.5, self.classes[1], self.classes[0])
+        return y_pred.ravel()
 
     # 2. Fonction cout (== log_loss)
     def __log_loss(self, y, H0):
         m = len(y)
         epsilon = 1e-15  # to avoid errors for log(0)
         return -1/m * np.sum(y * np.log(H0 + epsilon) + (1 - y) * np.log(1 - H0 + epsilon))
+
+    # 2. Fonction cout (== log_loss for soft max)
+    # def __log_loss(self, y, H0):
+    #     m = len(y)
+    #     epsilon = 1e-15  # to avoid errors for log(0)
+    #     return -1/m * np.sum(y * np.log(H0 + epsilon))
 
     # 3. Gradient descent
     def __back_propagation(self, X, y, activations, parameters):
@@ -98,29 +119,28 @@ class Neuron:
         n0 = X_train.shape[0]  # /!\ we use the T of X so n = X.shape[0]
         n2 = y_train.shape[0]  # /!\ we use the T of y so n = y.shape[0]
 
-        n_neurons = (n0,) + self.layers + (n2,)
+        layers = (n0,) + self.layers + (n2,)
 
-        parameters = self.__initialisation(n_neurons)
+        parameters = self.__initialisation(layers)
 
         for i in tqdm(range(self.nb_iter)):
             activations = self.__forward_propagation(X_train, parameters)
             gradients = self.__back_propagation(
                 X_train, y_train, activations, parameters)
             parameters = self.__update(gradients, parameters)
-
-            if (i % 100 == 0):
-                # log_loss de sklearn
-                self.loss.append(self.__log_loss(y_train, activations['A2']))
-                y_pred = self._predict(X_train, parameters)
-                self.acc.append(accuracy_score(
-                    y_train.flatten(), y_pred.flatten()))
-                if (X_test is not None and X_train is not None):
-                    A_test = self.__forward_propagation(X_test, parameters)
-                    self.test_loss.append(
-                        self.__log_loss(y_test, A_test['A2']))
-                    y_pred = self._predict(X_test, parameters)
-                    self.test_acc.append(accuracy_score(
-                        y_test.flatten(), y_pred.flatten()))
+            # print('len', len(activations[f'A{len(activations)}']))
+            # print(activations[f'A{len(activations)}'])
+            self.loss.append(self.__log_loss(y_train, activations[f'A{len(activations)}']))
+            y_pred = self._predict(X_train, parameters)
+            self.acc.append(accuracy_score(
+                y_train.flatten(), y_pred.flatten()))
+            if (X_test is not None and X_train is not None):
+                A_test = self.__forward_propagation(X_test, parameters)
+                self.test_loss.append(
+                    self.__log_loss(y_test, A_test[f'A{len(A_test)}']))
+                y_pred = self._predict(X_test, parameters)
+                self.test_acc.append(accuracy_score(
+                    y_test.flatten(), y_pred.flatten()))
         return parameters
 
     def __SGD(self, X, y, W, b):
@@ -146,9 +166,9 @@ class Neuron:
         n0 = X_train.shape[0]  # /!\ we use the T of X so n = X.shape[0]
         n2 = y_train.shape[0]  # /!\ we use the T of y so n = y.shape[0]
 
-        n_neurons = (n0,) + self.layers + (n2,)
+        layers = (n0,) + self.layers + (n2,)
 
-        parameters = self.__initialisation(n_neurons)
+        parameters = self.__initialisation(layers)
 
         for e in range(1, self.nb_iter + 1):
             if (self.shuffle is not None):
@@ -183,32 +203,29 @@ class Neuron:
     # 4. Regression
     def fit(self, X_train, y_train, X_test=None, y_test=None):
 
-        # X = np.asarray(X_train)
-        # y = np.asarray(y_train)
-        # y = y.reshape(y.shape[0], 1)
+        X_train = np.asarray(X_train)
+        y_train = np.asarray(y_train)
+        y_train = y_train.reshape(1, y_train.shape[0])
+        
+        self.classes = np.unique(y_train)
+
+        if (X_test is not None and y_test is not None):
+            X_test = np.asarray(X_test)
+            y_test = np.asarray(y_test)
+            y_test = y_test.reshape(1, y_test.shape[0])
+            y_test = np.where(y_test == self.classes[1], 1, 0) # Not robust --> depends on self.classes order !!!
+
+
+        # convert str target to [0,1]
+        y_train = np.where(y_train == self.classes[1], 1, 0) # Not robust --> depends on self.classes order !!!
+
 
         parameters = self.gradient_descent[self.solver](
             self, X_train, y_train, X_test, y_test)
         return parameters
 
-    def plot_cost_history(self, figsize=(9, 6), mode='all', ncols=2, acc=False):
+    def plot_cost_history(self, figsize=(9, 6), acc=False):
 
-        if (mode == 'class'):
-            nb_of_classes = len(self.classes)
-            nb_of_history = self.loss.shape[0]
-            batch_size = int(nb_of_history / nb_of_classes)
-            nrows = nb_of_classes // ncols + int(nb_of_classes % ncols > 0)
-            plt.figure(figsize=figsize)
-            plt.subplots_adjust(hspace=0.5, wspace=0.3)
-            plt.suptitle('Learning curves')
-            for i in range(1, nb_of_classes + 1):
-                plt.subplot(nrows, ncols, i)
-                plt.plot(
-                    self.loss[batch_size * (i - 1):batch_size * i])
-                plt.xlabel('n_iteration')
-                plt.ylabel('Log_loss')
-                plt.title(self.classes[i - 1])
-        else:
             if acc == False:
                 plt.figure(figsize=figsize)
                 plt.plot(self.loss)
@@ -217,23 +234,29 @@ class Neuron:
                 plt.title('Learning curve')
             else:
                 plt.figure(figsize=figsize)
+                plt.suptitle('Learning curves and accuracy')
+
                 plt.subplot(1, 3, 1)
                 plt.plot(self.loss, label='train loss')
-                if (len(self.test_loss) != 0):
-                    plt.subplot(1, 3, 2)
-                    plt.plot(self.test_loss, label='test loss')
-                    plt.legend()
                 plt.xlabel('n_iteration')
                 plt.ylabel('Log_loss')
-                plt.title('Learning curve')
+                plt.legend()
+                
+                if (len(self.test_loss) != 0):
+                    plt.subplot(1, 3, 2)
+                    plt.plot(self.test_loss, label='val loss')
+                    plt.xlabel('n_iteration')
+                    plt.ylabel('Log_loss')
+                    plt.legend()
+                
                 plt.subplot(1, 3, 3)
                 plt.plot(self.acc, label='train acc')
-                if (len(self.test_acc) != 0):
-                    plt.plot(self.test_acc, label='test acc')
-                    plt.legend()
                 plt.xlabel('n_iteration')
                 plt.ylabel('Accuracy')
                 plt.title('Accuracy')
+                if (len(self.test_acc) != 0):
+                    plt.plot(self.test_acc, label='val acc')
+                plt.legend()
 
 
 def test_with_circle_dataset():

@@ -10,7 +10,7 @@ from LR_model import LogisticRegression as LR
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
-from neuron import Neuron
+from multi_layered_ANN import Neuron
 
 
 def log_reg_skl(X_train, X_test, y_train, y_test):
@@ -101,20 +101,31 @@ if __name__ == '__main__':
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=42)
 
+    print('X_train.shape', X_train.shape)
+
     target = 'Diagnosis'
 
     # Logistic Regression
     # log_reg(X_train, X_test, y_train, y_test, args.solver)
 
+    # Transpose the data in order to be computable by the network
+    X_train = X_train.T
+    X_test = X_test.T
 
     # Neural network
-    # layers = (32, 16)
-    neuron = Neuron(nb_iter=150, learning_rate=0.1)
-    W, b = neuron.fit(X_train, y_train, X_test, y_test)
-    y_pred = neuron.predict(X_test, W, b)
+    layers = (32, 16)
+    neuron = Neuron(layers=layers, nb_iter=150, learning_rate=0.1)
+    parameters = neuron.fit(X_train, y_train, X_test, y_test)
+    y_pred = neuron.predict(X_test, parameters)
+    
+    diff = (y_pred == y_test).value_counts()
+    print(diff)
 
-    acc = accuracy_score(y_test, y_pred)
+    acc = accuracy_score(y_test, y_pred.T)
     print(f'accuracy {acc:.2f}')
-    neuron.plot_cost_history(acc=True)
+    f1 = f1_score(y_true=y_test, y_pred=y_pred, pos_label='M')
+    print(f"f1_score: {f1:.2f}")
+
+    neuron.plot_cost_history(figsize=(15, 5), acc=True)
 
     plt.show()
