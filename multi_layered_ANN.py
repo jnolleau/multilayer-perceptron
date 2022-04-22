@@ -9,12 +9,17 @@ from matrix_utils import shuffle, standardize_df
 from tqdm import tqdm
 # from scipy.special import softmax
 from sklearn.utils.extmath import softmax
+from sklearn.neural_network import MLPClassifier
 
 # def softmax(x):
-#     return np.exp(x) / np.sum(np.exp(x))
+#     e = np.exp(x - np.max(x))
+#     return e / np.sum(e, axis=1, keepdims=True)
+
+def relu(x):
+    return np.maximum(x, 0)
 
 class Neuron:
-    def __init__(self, layers=(32,), nb_iter=150, learning_rate=0.1, lr_ratio=1, solver='bgd', shuffle=None):
+    def __init__(self, layers=[32, 21, 12], activation='relu',  nb_iter=150, learning_rate=0.1, lr_ratio=1, solver='bgd', shuffle=None):
         self.layers = layers
         self.nb_iter = nb_iter
         self.learning_rate = learning_rate
@@ -33,41 +38,55 @@ class Neuron:
     def __initialisation(self, layers):
         
         n_layers = len(layers)
+        parameters = {}
         np.random.seed(0)
-        parameters = {
-            f'C{i}': {
-                'W': np.random.randn(layers[i], layers[i-1]),
-                'b': np.random.randn(layers[i], 1)
-            } for i in range(1, n_layers)
-        }
+
+        for i in range(1, n_layers):
+            parameters[f'W{i}'] = np.random.randn(layers[i], layers[i-1])
+            parameters[f'b{i}'] = np.random.randn(layers[i], 1)
+
+        # parameters = {
+        #     f'C{i}': {
+        #         'W': np.random.randn(layers[i], layers[i-1]),
+        #         'b': np.random.randn(layers[i], 1)
+        #     } for i in range(1, n_layers)
+        # }
         return parameters
 
     def __forward_propagation(self, X, parameters: dict):
 
-        A = X.copy() # should we use a copy of X or not ?
-        activations = {}
-        for i in range(1, len(parameters) + 1):
-            Z = np.dot(parameters[f'C{i}']['W'], A) + parameters[f'C{i}']['b']
-            # if (i != len(parameters)):
-            A = sigmoid(Z)
-            activations[f'A{i}'] = A
+        # A = X.copy() # should we use a copy of X or not ?
+        activations = {'A0': X}
+        for i in range(1, len(parameters) // 2 + 1):
+            Z = np.dot(parameters[f'W{i}'], activations[f'A{i-1}']) + parameters[f'b{i}']
+            if (i != len(parameters) // 2):
+                activations[f'A{i}'] = sigmoid(Z)
+        
+        # For the output layer
         # t = np.exp(Z)
-        # A = softmax(t)
-        # activations[f'A{len(parameters)}'] = A
+        activations[f'A{len(parameters) // 2}'] = softmax(Z)
+
         return activations
 
     def _predict(self, X, parameters):
         activations = self.__forward_propagation(X, parameters)
-        out = len(parameters)
+        out = len(parameters) // 2
         A = activations[f'A{out}']
         return A >= 0.5
     
     def predict(self, X, parameters):
         activations = self.__forward_propagation(X, parameters)
-        out = len(parameters)
+        out = len(parameters) // 2
         A = activations[f'A{out}']
         y_pred = np.where(A >= 0.5, self.classes[1], self.classes[0])
         return y_pred.ravel()
+    
+    def predict_softmax(self, X, parameters):
+        activations = self.__forward_propagation(X, parameters)
+        out = len(parameters) // 2
+        y_pred = activations[f'A{out}']
+        # y_pred = np.where(A >= 0.5, self.classes[1], self.classes[0])
+        return y_pred
 
     # 2. Fonction cout (== log_loss)
     def __log_loss(self, y, H0):
@@ -85,62 +104,62 @@ class Neuron:
     def __back_propagation(self, X, y, activations, parameters):
 
         m = y.shape[1]
-        out = len(parameters)
+        out = len(parameters) // 2
 
         dZ = activations[f'A{out}'] - y
-        dW_out = 1/m * np.dot(dZ, activations[f'A{out - 1}'].T)
-        db_out = 1/m * np.sum(dZ, axis=1, keepdims=True)
+        # dW_out = 1/m * np.dot(dZ, activations[f'A{out - 1}'].T)
+        # db_out = 1/m * np.sum(dZ, axis=1, keepdims=True)
 
-        gradients = {
-            f'dW{out}': dW_out,
-            f'db{out}': db_out
-        }
-        for i in range(out - 1, 1, -1):
-            dZ = np.dot(parameters[f'C{i+1}']['W'].T, dZ) * activations[f'A{i}'] * (1 - activations[f'A{i}'])
+        gradients = {}
+        for i in reversed(range(1, out + 1)):
             gradients[f'dW{i}'] = 1/m * np.dot(dZ, activations[f'A{i-1}'].T)
             gradients[f'db{i}'] = 1/m * np.sum(dZ, axis=1, keepdims=True)
+            if i > 1:
+                dZ = np.dot(parameters[f'W{i}'].T, dZ) * activations[f'A{i-1}'] * (1 - activations[f'A{i-1}'])
 
-        dZ = np.dot(parameters['C2']['W'].T, dZ) * activations['A1'] * (1 - activations['A1'])
-        gradients[f'dW1'] = 1/m * np.dot(dZ, X.T)
-        gradients[f'db1'] = 1/m * np.sum(dZ, axis=1, keepdims=True)
+        # dZ = np.dot(parameters['W2'].T, dZ) * activations['A1'] * (1 - activations['A1'])
+        # gradients[f'dW1'] = 1/m * np.dot(dZ, X.T)
+        # gradients[f'db1'] = 1/m * np.sum(dZ, axis=1, keepdims=True)
 
         return gradients
 
     def __update(self, gradients, parameters):
 
-        for i in range(1, len(parameters) + 1):
-            parameters[f'C{i}']['W'] = parameters[f'C{i}']['W'] - self.learning_rate * gradients[f'dW{i}']
-            parameters[f'C{i}']['b'] = parameters[f'C{i}']['b'] - self.learning_rate * gradients[f'db{i}']
+        for i in range(1, len(parameters) // 2 + 1):
+            parameters[f'W{i}'] = parameters[f'W{i}'] - self.learning_rate * gradients[f'dW{i}']
+            parameters[f'W{i}'] = parameters[f'W{i}'] - self.learning_rate * gradients[f'db{i}']
 
         return parameters
 
     def __BGD(self, X_train, y_train, X_test, y_test):
 
         n0 = X_train.shape[0]  # /!\ we use the T of X so n = X.shape[0]
-        n2 = y_train.shape[0]  # /!\ we use the T of y so n = y.shape[0]
+        # n2 = y_train.shape[0]  # /!\ we use the T of y so n = y.shape[0]
+        n2 = len(self.classes)  # nbr of classes = nbr of output neurons
 
-        layers = (n0,) + self.layers + (n2,)
+        layers = [n0] + self.layers + [n2]
 
         parameters = self.__initialisation(layers)
+        # exit()
 
         for i in tqdm(range(self.nb_iter)):
             activations = self.__forward_propagation(X_train, parameters)
             gradients = self.__back_propagation(
                 X_train, y_train, activations, parameters)
             parameters = self.__update(gradients, parameters)
-            # print('len', len(activations[f'A{len(activations)}']))
-            # print(activations[f'A{len(activations)}'])
-            self.loss.append(self.__log_loss(y_train, activations[f'A{len(activations)}']))
+            # print('len', len(activations[f'A{len(activations) - 1}']))
+            # print(activations[f'A{len(activations) - 1}'])
+            self.loss.append(self.__log_loss(y_train, activations[f'A{len(activations) - 1}']))
             y_pred = self._predict(X_train, parameters)
-            self.acc.append(accuracy_score(
-                y_train.flatten(), y_pred.flatten()))
-            if (X_test is not None and X_train is not None):
-                A_test = self.__forward_propagation(X_test, parameters)
-                self.test_loss.append(
-                    self.__log_loss(y_test, A_test[f'A{len(A_test)}']))
-                y_pred = self._predict(X_test, parameters)
-                self.test_acc.append(accuracy_score(
-                    y_test.flatten(), y_pred.flatten()))
+            # self.acc.append(accuracy_score(
+            #     y_train.flatten(), y_pred.flatten()))
+            # if (X_test is not None and X_train is not None):
+            #     A_test = self.__forward_propagation(X_test, parameters)
+            #     self.test_loss.append(
+            #         self.__log_loss(y_test, A_test[f'A{len(A_test)}']))
+            #     y_pred = self._predict(X_test, parameters)
+            #     self.test_acc.append(accuracy_score(
+            #         y_test.flatten(), y_pred.flatten()))
         return parameters
 
     def __SGD(self, X, y, W, b):
@@ -166,7 +185,7 @@ class Neuron:
         n0 = X_train.shape[0]  # /!\ we use the T of X so n = X.shape[0]
         n2 = y_train.shape[0]  # /!\ we use the T of y so n = y.shape[0]
 
-        layers = (n0,) + self.layers + (n2,)
+        layers = [n0] + self.layers + [n2]
 
         parameters = self.__initialisation(layers)
 
@@ -180,7 +199,7 @@ class Neuron:
                 parameters = self.__update(gradients, parameters)
             
                 # log_loss de sklearn
-                self.loss.append(self.__log_loss(y_train[:, i:batch_size + i], activations[f'A{len(activations)}']))
+                self.loss.append(self.__log_loss(y_train[:, i:batch_size + i], activations[f'A{len(activations) - 1}']))
                 y_pred = self._predict(X_train, parameters)
                 self.acc.append(accuracy_score(
                     y_train.flatten(), y_pred.flatten()))
@@ -318,7 +337,7 @@ def test_cats_and_dogs():
     print(np.unique(y_test, return_counts=True))
 
     # set neural network and launch the training
-    layers = (32, 16)
+    layers = [32, 16]
     neuron = Neuron(layers, nb_iter=2, learning_rate=0.01, solver='mgd')
     neuron.fit(X_train_reshape, y_train, X_test_reshape, y_test)
     neuron.plot_cost_history(acc=True)

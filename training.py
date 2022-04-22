@@ -113,19 +113,20 @@ if __name__ == '__main__':
     X_test = X_test.T
 
     # Neural network
-    layers = (32, 16)
+    layers = [32, 16]
     neuron = Neuron(layers=layers, nb_iter=150, learning_rate=0.1)
     parameters = neuron.fit(X_train, y_train, X_test, y_test)
-    y_pred = neuron.predict(X_test, parameters)
-    
-    diff = (y_pred == y_test).value_counts()
-    print(diff)
+    # y_pred = neuron.predict(X_test, parameters)
+    y_pred = neuron.predict_softmax(X_test, parameters)
+    print(y_pred)
+    # diff = (y_pred == y_test).value_counts()
+    # print(diff)
 
-    acc = accuracy_score(y_test, y_pred.T)
-    print(f'accuracy {acc:.2f}')
-    f1 = f1_score(y_true=y_test, y_pred=y_pred, pos_label='M')
-    print(f"f1_score: {f1:.2f}")
+    # acc = accuracy_score(y_test, y_pred.T)
+    # print(f'accuracy {acc:.2f}')
+    # f1 = f1_score(y_true=y_test, y_pred=y_pred, pos_label='M')
+    # print(f"f1_score: {f1:.2f}")
 
-    neuron.plot_cost_history(figsize=(15, 5), acc=True)
+    # neuron.plot_cost_history(figsize=(15, 5), acc=True)
 
     plt.show()
